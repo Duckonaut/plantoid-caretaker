@@ -4,24 +4,26 @@ use std::f32::consts::PI;
 
 use bevy::{
     core_pipeline::clear_color::ClearColorConfig,
-    prelude::{
-        shape::{Icosphere, Plane},
-        *,
-    },
+    prelude::{shape::Plane, *},
+    reflect::TypeUuid,
     render::{
         camera::RenderTarget,
         render_resource::{
-            Extent3d, SamplerDescriptor, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureUsages,
+            AsBindGroup, Extent3d, SamplerDescriptor, TextureDescriptor, TextureDimension,
+            TextureFormat, TextureUsages,
         },
         texture::ImageSampler,
         view::RenderLayers,
     },
     window::WindowMode,
 };
+use camera::MainCamera;
 
-#[derive(Component)]
-struct Planetoid;
+mod camera;
+mod creature;
+mod planetoid;
+
+pub struct GameWorldRenderLayer(RenderLayers);
 
 fn main() {
     App::new()
@@ -40,53 +42,25 @@ fn main() {
             color: Color::WHITE,
             brightness: 1.0 / 5.0f32,
         })
+        .insert_resource(GameWorldRenderLayer(RenderLayers::layer(1)))
         .add_plugins(DefaultPlugins)
-        .add_startup_system(setup)
-        .add_system(animate_light_direction)
-        .add_system(sphere_scale)
+        .add_plugin(MaterialPlugin::<PostProcessMaterial>::default())
+        .add_plugin(planetoid::PlanetoidPlugin)
+        .add_plugin(camera::MainCameraPlugin)
+        .add_plugin(creature::CreaturePlugin)
+        .add_startup_system(setup_dpass)
+        .add_startup_system(setup_msaa)
         .run();
 }
 
-fn setup(
+fn setup_dpass(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<PostProcessMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    assets: Res<AssetServer>,
+    game_world_render_layer: Res<GameWorldRenderLayer>,
 ) {
-    let first_pass_layer = RenderLayers::layer(1);
-    const HALF_SIZE: f32 = 1.0;
-    commands
-        .spawn_bundle(DirectionalLightBundle {
-            directional_light: DirectionalLight {
-                shadow_projection: OrthographicProjection {
-                    left: -HALF_SIZE,
-                    right: HALF_SIZE,
-                    bottom: -HALF_SIZE,
-                    top: HALF_SIZE,
-                    near: -10.0 * HALF_SIZE,
-                    far: 10.0 * HALF_SIZE,
-                    ..default()
-                },
-                shadows_enabled: true,
-                ..default()
-            },
-            ..default()
-        })
-        .insert(first_pass_layer);
-
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(Icosphere {
-                radius: 0.5,
-                subdivisions: 0,
-            })),
-            material: materials.add(Color::rgb(0.5, 0.5, 0.5).into()),
-            ..default()
-        })
-        .insert(Planetoid)
-        .insert(first_pass_layer);
-
     let size = Extent3d {
         width: 64,
         height: 64,
@@ -119,25 +93,26 @@ fn setup(
 
     let image_handle = images.add(image);
 
-    let material_handle = materials.add(StandardMaterial {
-        base_color_texture: Some(image_handle.clone()),
-        unlit: true,
-        ..Default::default()
+    let material_handle = materials.add(PostProcessMaterial {
+        render_texture: image_handle.clone(),
+        noise_texture: assets.load("textures/noise.png"),
     });
 
     let plane_handle = meshes.add(Mesh::from(Plane { size: 1.0 }));
 
-    commands.spawn_bundle(PbrBundle {
+    commands.spawn_bundle(MaterialMeshBundle {
         material: material_handle,
         mesh: plane_handle,
-        transform: Transform::from_rotation(Quat::from_rotation_x(PI / 2.0)),
+        transform: Transform::from_rotation(
+            Quat::from_rotation_z(PI) * Quat::from_rotation_x(PI / 2.0),
+        ),
         ..default()
     });
 
     commands
         .spawn_bundle(Camera3dBundle {
             camera_3d: Camera3d {
-                clear_color: ClearColorConfig::Custom(Color::WHITE),
+                clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
             },
             camera: Camera {
@@ -146,19 +121,19 @@ fn setup(
                 target: RenderTarget::Image(image_handle.clone()),
                 ..default()
             },
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 5.0))
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, -5.0))
                 .looking_at(Vec3::default(), Vec3::Y),
             ..default()
         })
-        .insert(first_pass_layer);
+        .insert(game_world_render_layer.0)
+        .insert(MainCamera);
 
     commands.spawn_bundle(Camera3dBundle {
         camera_3d: Camera3d {
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
-        transform: Transform::from_xyz(0.0, 0.0, 2.0)
-            .looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+        transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         projection: bevy::render::camera::Projection::Orthographic(OrthographicProjection {
             left: -0.5,
             right: 0.5,
@@ -171,26 +146,23 @@ fn setup(
     });
 }
 
-fn animate_light_direction(
-    time: Res<Time>,
-    mut query: Query<&mut Transform, With<DirectionalLight>>,
-) {
-    for mut transform in &mut query {
-        transform.rotation = Quat::from_euler(
-            EulerRot::ZYX,
-            0.0,
-            time.seconds_since_startup() as f32 * std::f32::consts::TAU / 10.0,
-            -std::f32::consts::FRAC_PI_4,
-        );
-    }
+fn setup_msaa(mut msaa: ResMut<Msaa>) {
+    msaa.samples = 1;
 }
 
-fn sphere_scale(time: Res<Time>, mut query: Query<&mut Transform, With<Planetoid>>) {
-    for mut transform in &mut query {
-        transform.scale = Vec3::new(
-            1.0 + time.seconds_since_startup().sin() as f32 * 0.5,
-            1.0 + time.seconds_since_startup().sin() as f32 * 0.5,
-            1.0 + time.seconds_since_startup().sin() as f32 * 0.5,
-        );
+#[derive(AsBindGroup, TypeUuid, Debug, Clone, Component)]
+#[uuid = "1e55b055-f4c4-c1c2-d1d2-d3d4d5d6d7d8"]
+pub struct PostProcessMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub render_texture: Handle<Image>,
+    #[texture(2)]
+    #[sampler(3)]
+    pub noise_texture: Handle<Image>,
+}
+
+impl Material for PostProcessMaterial {
+    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
+        "shaders/postprocess_material.wgsl".into()
     }
 }
