@@ -38,10 +38,6 @@ fn main() {
             mode: WindowMode::Windowed,
             ..default()
         })
-        .insert_resource(AmbientLight {
-            color: Color::WHITE,
-            brightness: 1.0 / 5.0f32,
-        })
         .insert_resource(GameWorldRenderLayer(RenderLayers::layer(1)))
         .add_plugins(DefaultPlugins)
         .add_plugin(MaterialPlugin::<PostProcessMaterial>::default())
@@ -73,7 +69,7 @@ fn setup_dpass(
             label: None,
             size,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
+            format: TextureFormat::Rgba8UnormSrgb,
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING

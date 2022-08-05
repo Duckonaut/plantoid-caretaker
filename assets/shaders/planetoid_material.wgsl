@@ -16,28 +16,28 @@ var<uniform> sun_pos: vec3<f32>;
 var<uniform> sun_intensity: f32;
 
 struct Vertex {
-    @location(0) position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
+    @align(16) @location(0) position: vec3<f32>,
+    @align(16) @location(1) normal: vec3<f32>,
 #ifdef VERTEX_UVS
-    @location(2) uv: vec2<f32>,
+    @align(16) @location(2) uv: vec2<f32>,
 #endif
 #ifdef VERTEX_TANGENTS
-    @location(3) tangent: vec4<f32>,
+    @align(16) @location(3) tangent: vec4<f32>,
 #endif
 #ifdef VERTEX_COLORS
-    @location(4) color: vec4<f32>,
+    @align(16) @location(4) color: vec4<f32>,
 #endif
 #ifdef SKINNED
-    @location(5) joint_indices: vec4<u32>,
-    @location(6) joint_weights: vec4<f32>,
+    @align(16) @location(5) joint_indices: vec4<u32>,
+    @align(16) @location(6) joint_weights: vec4<f32>,
 #endif
 };
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @align(16) @builtin(position) clip_position: vec4<f32>,
     #import bevy_pbr::mesh_vertex_output
-    @location(5) position: vec3<f32>,
-    @location(6) normal: vec3<f32>
+    @align(16) @location(5) position: vec3<f32>,
+    @align(16) @location(6) normal: vec3<f32>,
 };
 
 fn rand2(n: vec2<f32>) -> f32 {
