@@ -15,12 +15,25 @@ pub(crate) fn match_planetoid_transforms(
     mut query: Query<(&mut Transform, &PlanetoidTransform)>,
 ) {
     for (mut transform, planetoid_transform) in query.iter_mut() {
-        let matrix = Mat4::from_quat(planetoid_rotation.0)
-            * Mat4::from_rotation_z(planetoid_transform.sphere_coords.x)
-            * Mat4::from_rotation_x(planetoid_transform.sphere_coords.y)
+        let matrix = Mat4::from_rotation_z(planetoid_transform.sphere_coords.x * PI)
+            * Mat4::from_rotation_x(planetoid_transform.sphere_coords.y * PI)
             * Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0))
             * Mat4::from_rotation_y(planetoid_transform.rotation - PI * 0.5);
 
         *transform = Transform::from_matrix(matrix);
     }
+}
+
+pub(crate) fn cartesian_to_normalized_sphere(pos: Vec3) -> Vec2 {
+    Vec2::new(
+        0.5 + f32::atan2(pos.z, pos.x) / (PI * 2.0),
+        f32::acos(pos.y / pos.length()) / PI,
+    )
+}
+
+pub(crate) fn normalized_sphere_to_cartesian(sphere_coords: Vec2) -> Vec3 {
+    let x = f32::sin(sphere_coords.y * PI) * f32::cos(sphere_coords.x * PI);
+    let y = f32::cos(sphere_coords.y * PI);
+    let z = f32::sin(sphere_coords.y * PI) * f32::sin(sphere_coords.x * PI);
+    Vec3::new(x, y, z)
 }

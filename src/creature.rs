@@ -1,18 +1,28 @@
 use bevy::prelude::*;
 
-use crate::{planetoid::transform::PlanetoidTransform, GameWorldRenderLayer};
+use crate::{
+    planetoid::transform::{
+        cartesian_to_normalized_sphere, normalized_sphere_to_cartesian, PlanetoidTransform,
+    },
+    GameWorldRenderLayer,
+};
 
 pub(crate) struct CreaturePlugin;
 
 impl Plugin for CreaturePlugin {
     fn build(&self, app: &mut App) {
-        app.add_startup_system(setup_creature)
+        app.insert_resource(CreatureTarget { target: None })
+            .add_startup_system(setup_creature)
             .add_system(creature_movement);
     }
 }
 
 #[derive(Component)]
 pub(crate) struct Creature;
+
+pub(crate) struct CreatureTarget {
+    pub(crate) target: Option<Vec2>,
+}
 
 fn setup_creature(
     mut commands: Commands,
@@ -31,7 +41,10 @@ fn setup_creature(
             }),
             ..default()
         })
-        .insert(PlanetoidTransform::default())
+        .insert(PlanetoidTransform {
+            sphere_coords: Vec2::new(0.0, 0.0),
+            rotation: 0.0,
+        })
         .insert(Creature)
         .insert(game_world_render_layer.0);
     commands
@@ -45,8 +58,8 @@ fn setup_creature(
             ..default()
         })
         .insert(PlanetoidTransform {
-            sphere_coords: Vec2::new(1.0, 3.14),
-            rotation: 5.0,
+            sphere_coords: Vec2::new(0.5, 0.0),
+            rotation: 0.0,
         })
         .insert(Creature)
         .insert(game_world_render_layer.0);
@@ -61,8 +74,8 @@ fn setup_creature(
             ..default()
         })
         .insert(PlanetoidTransform {
-            sphere_coords: Vec2::new(5.0, 3.14),
-            rotation: 3.0,
+            sphere_coords: Vec2::new(0.0, 0.5),
+            rotation: 0.0,
         })
         .insert(Creature)
         .insert(game_world_render_layer.0);
@@ -77,18 +90,23 @@ fn setup_creature(
             ..default()
         })
         .insert(PlanetoidTransform {
-            sphere_coords: Vec2::new(0.5, 1.14),
-            rotation: 2.0,
+            sphere_coords: Vec2::new(0.5, 0.5),
+            rotation: 0.0,
         })
         .insert(Creature)
         .insert(game_world_render_layer.0);
 }
 
-fn creature_movement(time: Res<Time>, mut query: Query<&mut PlanetoidTransform, With<Creature>>) {
-    for mut transform in &mut query {
-        transform.rotation += time.delta_seconds();
+fn creature_movement(
+    time: Res<Time>,
+    target: Res<CreatureTarget>,
+    mut query: Query<&mut PlanetoidTransform, With<Creature>>,
+) {
+    if let Some(target) = target.target {
+        for mut transform in query.iter_mut() {
+            let delta = target - transform.sphere_coords;
 
-        transform.sphere_coords.x += transform.rotation.cos() * 0.5 * time.delta_seconds();
-        transform.sphere_coords.y += transform.rotation.sin() * 0.5 * time.delta_seconds();
+            transform.sphere_coords += delta * time.delta_seconds() * 0.1;
+        }
     }
 }

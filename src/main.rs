@@ -1,5 +1,3 @@
-//! Loads and renders a glTF file as a scene.
-
 use std::f32::consts::PI;
 
 use bevy::{
@@ -17,13 +15,16 @@ use bevy::{
     },
     window::WindowMode,
 };
-use camera::MainCamera;
+use bevy_mod_raycast::{DefaultRaycastingPlugin, RayCastMethod, RayCastSource, RaycastSystem};
+use camera::{MainCamera, MainCameraTransform};
+use planetoid::{transform::cartesian_to_normalized_sphere, Sky};
 
 mod camera;
 mod creature;
 mod planetoid;
 
 pub struct GameWorldRenderLayer(RenderLayers);
+pub(crate) struct PlanetoidRaycastSet;
 
 fn main() {
     App::new()
@@ -40,12 +41,20 @@ fn main() {
         })
         .insert_resource(GameWorldRenderLayer(RenderLayers::layer(1)))
         .add_plugins(DefaultPlugins)
+        .add_plugin(DefaultRaycastingPlugin::<PlanetoidRaycastSet>::default())
+        .add_system_to_stage(
+            CoreStage::First,
+            update_raycast_with_cursor.before(RaycastSystem::BuildRays::<PlanetoidRaycastSet>),
+        )
+        .add_system(set_creature_target)
         .add_plugin(MaterialPlugin::<PostProcessMaterial>::default())
         .add_plugin(planetoid::PlanetoidPlugin)
         .add_plugin(camera::MainCameraPlugin)
         .add_plugin(creature::CreaturePlugin)
         .add_startup_system(setup_dpass)
         .add_startup_system(setup_msaa)
+        .add_system(update_postprocess)
+        .add_system(make_images_nearest_filtered)
         .run();
 }
 
@@ -64,25 +73,7 @@ fn setup_dpass(
     };
 
     // This is the texture that will be rendered to.
-    let mut image = Image {
-        texture_descriptor: TextureDescriptor {
-            label: None,
-            size,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT,
-        },
-        sampler_descriptor: ImageSampler::Descriptor(SamplerDescriptor {
-            mag_filter: bevy::render::render_resource::FilterMode::Nearest,
-            min_filter: bevy::render::render_resource::FilterMode::Nearest,
-            ..default()
-        }),
-        ..default()
-    };
+    let mut image = create_render_texture(size);
 
     // fill image.data with zeroes
     image.resize(size);
@@ -92,6 +83,7 @@ fn setup_dpass(
     let material_handle = materials.add(PostProcessMaterial {
         render_texture: image_handle.clone(),
         noise_texture: assets.load("textures/noise.png"),
+        orientation: Mat4::IDENTITY,
     });
 
     let plane_handle = meshes.add(Mesh::from(Plane { size: 1.0 }));
@@ -114,7 +106,7 @@ fn setup_dpass(
             camera: Camera {
                 // render before the "main pass" camera
                 priority: -1,
-                target: RenderTarget::Image(image_handle.clone()),
+                target: RenderTarget::Image(image_handle),
                 ..default()
             },
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, -5.0))
@@ -122,6 +114,7 @@ fn setup_dpass(
             ..default()
         })
         .insert(game_world_render_layer.0)
+        .insert(RayCastSource::<PlanetoidRaycastSet>::new())
         .insert(MainCamera);
 
     commands.spawn_bundle(Camera3dBundle {
@@ -146,6 +139,81 @@ fn setup_msaa(mut msaa: ResMut<Msaa>) {
     msaa.samples = 1;
 }
 
+#[cfg(target_arch = "wasm32")]
+fn create_render_texture(size: Extent3d) -> Image {
+    Image {
+        texture_descriptor: TextureDescriptor {
+            label: None,
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+        },
+        sampler_descriptor: ImageSampler::Descriptor(SamplerDescriptor {
+            mag_filter: bevy::render::render_resource::FilterMode::Nearest,
+            min_filter: bevy::render::render_resource::FilterMode::Nearest,
+            ..default()
+        }),
+        ..default()
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn create_render_texture(size: Extent3d) -> Image {
+    Image {
+        texture_descriptor: TextureDescriptor {
+            label: None,
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Bgra8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+        },
+        sampler_descriptor: ImageSampler::Descriptor(SamplerDescriptor {
+            mag_filter: bevy::render::render_resource::FilterMode::Nearest,
+            min_filter: bevy::render::render_resource::FilterMode::Nearest,
+            ..default()
+        }),
+        ..default()
+    }
+}
+
+fn make_images_nearest_filtered(
+    mut ev_asset: EventReader<AssetEvent<Image>>,
+    mut images: ResMut<Assets<Image>>,
+    materials: Res<Assets<StandardMaterial>>,
+    query: Query<&Handle<StandardMaterial>, With<Sky>>,
+) {
+    for event in ev_asset.iter() {
+        if let AssetEvent::Created { handle } = event {
+            if query.iter().any(|sm| {
+                materials
+                    .get(sm)
+                    .unwrap()
+                    .base_color_texture
+                    .as_ref()
+                    .or(None)
+                    == Some(handle)
+            }) {
+                bevy::log::info!("making image nearest filtered: {:?}", handle);
+                let image = images.get_mut(handle).unwrap();
+                image.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
+                    mag_filter: bevy::render::render_resource::FilterMode::Nearest,
+                    min_filter: bevy::render::render_resource::FilterMode::Nearest,
+                    ..default()
+                });
+            }
+        }
+    }
+}
+
 #[derive(AsBindGroup, TypeUuid, Debug, Clone, Component)]
 #[uuid = "1e55b055-f4c4-c1c2-d1d2-d3d4d5d6d7d8"]
 pub struct PostProcessMaterial {
@@ -155,10 +223,57 @@ pub struct PostProcessMaterial {
     #[texture(2)]
     #[sampler(3)]
     pub noise_texture: Handle<Image>,
+    #[uniform(4)]
+    pub orientation: Mat4,
 }
 
 impl Material for PostProcessMaterial {
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         "shaders/postprocess_material.wgsl".into()
+    }
+}
+
+fn update_postprocess(
+    cam_transform: Res<MainCameraTransform>,
+    mut materials: ResMut<Assets<PostProcessMaterial>>,
+    query: Query<&Handle<PostProcessMaterial>>,
+) {
+    for handle in query.iter() {
+        let mat = &mut materials.get_mut(handle);
+
+        if let Some(mat) = mat {
+            mat.orientation = cam_transform.value;
+        }
+    }
+}
+
+fn update_raycast_with_cursor(
+    mut cursor: EventReader<CursorMoved>,
+    mut query: Query<&mut RayCastSource<PlanetoidRaycastSet>>,
+) {
+    let cursor_position = match cursor.iter().last() {
+        Some(cursor_moved) => cursor_moved.position,
+        None => return,
+    };
+
+    for mut pick_source in &mut query {
+        pick_source.cast_method = RayCastMethod::Screenspace(cursor_position);
+    }
+}
+
+fn set_creature_target(
+    buttons: Res<Input<MouseButton>>,
+    mut target: ResMut<creature::CreatureTarget>,
+    query: Query<&mut RayCastSource<PlanetoidRaycastSet>>,
+) {
+    if buttons.pressed(MouseButton::Left) {
+        for pick_source in query.iter() {
+            if let Some((_, intersection_data)) = pick_source.intersect_top() {
+                let target_position = cartesian_to_normalized_sphere(intersection_data.position());
+                bevy::log::info!("target position: {:?}", target_position);
+                target.target = Some(target_position);
+                break;
+            }
+        }
     }
 }

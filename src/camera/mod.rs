@@ -6,11 +6,20 @@ use bevy::{
 #[derive(Component)]
 pub(crate) struct MainCamera;
 
+pub(crate) struct MainCameraTransform {
+    pub(crate) value: Mat4,
+}
+
 pub struct MainCameraPlugin;
 
 impl Plugin for MainCameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(scroll_events).add_system(camera_pan);
+        app.insert_resource(MainCameraTransform {
+            value: Mat4::IDENTITY,
+        })
+        .add_system(scroll_events)
+        .add_system(camera_pan)
+        .add_system(update_cam_transform);
     }
 }
 
@@ -48,5 +57,14 @@ fn camera_pan(
 
             *transform = Transform::from_matrix(delta).mul_transform(*transform);
         }
+    }
+}
+
+fn update_cam_transform(
+    mut cam_transform: ResMut<MainCameraTransform>,
+    query: Query<&mut Transform, With<MainCamera>>,
+) {
+    if let Some(transform) = query.iter().next() {
+        cam_transform.value = transform.compute_matrix();
     }
 }

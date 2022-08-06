@@ -2,7 +2,7 @@ use std::f32::consts::PI;
 
 use bevy::{prelude::*, reflect::TypeUuid, render::render_resource::AsBindGroup};
 
-#[derive(AsBindGroup, TypeUuid, Debug, Clone, Component)]
+#[derive(Default, AsBindGroup, TypeUuid, Debug, Clone, Component)]
 #[uuid = "1e55b055-b1b2-c1c2-d1d2-d3d4d5d6d7d8"]
 pub struct PlanetoidMaterial {
     #[texture(0)]
@@ -12,9 +12,7 @@ pub struct PlanetoidMaterial {
     #[sampler(3)]
     pub heightmap: Handle<Image>,
     #[uniform(4)]
-    pub sun_pos: Vec3,
-    #[uniform(5)]
-    pub sun_intensity: f32,
+    pub sun_info: Vec4,
 }
 
 impl Material for PlanetoidMaterial {
@@ -40,8 +38,9 @@ pub fn update_material_sun_pos(
             let rot_y = Mat4::from_rotation_y(time.seconds_since_startup() as f32 * 0.25);
             let rot_z = Mat4::from_rotation_z(PI / 4.0);
             let transform = rot_z * rot_y * pos;
+            let info = transform.to_scale_rotation_translation().2;
 
-            mat.sun_pos = transform.to_scale_rotation_translation().2;
+            mat.sun_info = Vec4::new(info.x, info.y, info.z, mat.sun_info.w);
         }
     }
 }
