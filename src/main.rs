@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, thread::panicking};
 
 use bevy::{
     core_pipeline::clear_color::ClearColorConfig,
@@ -6,6 +6,7 @@ use bevy::{
     reflect::TypeUuid,
     render::{
         camera::RenderTarget,
+        primitives::Sphere,
         render_resource::{
             AsBindGroup, Extent3d, SamplerDescriptor, TextureDescriptor, TextureDimension,
             TextureFormat, TextureUsages,
@@ -15,9 +16,12 @@ use bevy::{
     },
     window::WindowMode,
 };
-use bevy_mod_raycast::{DefaultRaycastingPlugin, RayCastMethod, RayCastSource, RaycastSystem};
+use bevy_mod_raycast::{
+    ray_intersection_over_mesh, DefaultRaycastingPlugin, Ray3d, RayCastMethod, RayCastSource,
+    RaycastSystem,
+};
 use camera::{MainCamera, MainCameraTransform};
-use planetoid::{transform::cartesian_to_normalized_sphere, Sky};
+use planetoid::{transform::cartesian_to_normalized_sphere, Planetoid, Sky, PlanetoidRotation};
 
 mod camera;
 mod creature;
@@ -251,29 +255,53 @@ fn update_raycast_with_cursor(
     mut cursor: EventReader<CursorMoved>,
     mut query: Query<&mut RayCastSource<PlanetoidRaycastSet>>,
 ) {
-    let cursor_position = match cursor.iter().last() {
-        Some(cursor_moved) => cursor_moved.position,
-        None => return,
-    };
-
     for mut pick_source in &mut query {
-        pick_source.cast_method = RayCastMethod::Screenspace(cursor_position);
+        if let Some(cursor_latest) = cursor.iter().last() {
+            pick_source.cast_method = RayCastMethod::Screenspace(cursor_latest.position);
+        }
     }
 }
 
 fn set_creature_target(
     buttons: Res<Input<MouseButton>>,
+    planetoid_rotation: Res<PlanetoidRotation>,
     mut target: ResMut<creature::CreatureTarget>,
-    query: Query<&mut RayCastSource<PlanetoidRaycastSet>>,
+    camera: Query<(&Transform, &Camera), With<MainCamera>>,
+    planetoid: Query<(&Handle<Mesh>, &Transform), With<Planetoid>>,
+    meshes: Res<Assets<Mesh>>,
 ) {
     if buttons.pressed(MouseButton::Left) {
-        for pick_source in query.iter() {
-            if let Some((_, intersection_data)) = pick_source.intersect_top() {
-                let target_position = cartesian_to_normalized_sphere(intersection_data.position());
-                bevy::log::info!("target position: {:?}", target_position);
-                target.target = Some(target_position);
-                break;
-            }
+        let (camera_transform, camera) = camera.iter().next().unwrap();
+
+        let ray = Ray3d::new(
+            camera_transform.translation,
+            camera_transform.rotation * Vec3::new(0.0, 0.0, -1.0),
+        );
+        bevy::log::info!("ray source: {:?}", ray.origin());
+        bevy::log::info!("ray direction: {:?}", ray.direction());
+
+        let (planetoid_handle, planetoid_transform) = planetoid.single();
+
+        let mesh = meshes.get(planetoid_handle).unwrap();
+
+        let intersection = ray_intersection_over_mesh(
+            mesh,
+            &planetoid_transform.compute_matrix(),
+            &ray,
+            bevy_mod_raycast::Backfaces::Cull,
+        );
+
+        if let Some(intersection) = intersection {
+            let pos = intersection.position();
+            bevy::log::info!("creature target: {:?}", pos);
+
+            let target_on_planetoid = planetoid_rotation.0.inverse() * pos;
+            bevy::log::info!("creature target on planetoid: {:?}", target_on_planetoid);
+
+            let sphere_pos = cartesian_to_normalized_sphere(target_on_planetoid);
+            bevy::log::info!("creature target sphere: {:?}", sphere_pos);
+
+            target.target = Some(sphere_pos);
         }
     }
 }

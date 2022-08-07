@@ -70,12 +70,13 @@ fn fragment(
     let light_intensity = sun_intensity * dot(light_dir, vertex.world_normal.xyz);
     let final_color = textureSample(color_map, color_map_sampler, vec2<f32>((light_intensity + 1.0) / 2.0, 0.5));
     let position = vertex.world_position;
-    return vec4<f32>(
-        0.5 + atan2(position.z, position.x) / 6.14,
-        acos(
-            position.y / sqrt(position.x * position.x + position.y * position.y + position.z * position.z)
-        ) / 3.14,
-        0.0,
-        1.0
-    );
+//    return vec4<f32>(
+//        0.5 + atan2(position.z, position.x) / 6.14,
+//        acos(
+//            position.y / sqrt(position.x * position.x + position.y * position.y + position.z * position.z)
+//        ) / 3.14,
+//        0.0,
+//        1.0
+//    );
+    return final_color;
 }

@@ -15,10 +15,14 @@ pub(crate) fn match_planetoid_transforms(
     mut query: Query<(&mut Transform, &PlanetoidTransform)>,
 ) {
     for (mut transform, planetoid_transform) in query.iter_mut() {
-        let matrix = Mat4::from_rotation_z(planetoid_transform.sphere_coords.x * PI)
-            * Mat4::from_rotation_x(planetoid_transform.sphere_coords.y * PI)
+        let matrix = Mat4::from_quat(planetoid_rotation.0)
+            * Mat4::from_axis_angle(
+                Quat::from_rotation_y(-(planetoid_transform.sphere_coords.x - 0.5) * PI * 2.0 + PI)
+                    * Vec3::new(0.0, 0.0, 1.0),
+                planetoid_transform.sphere_coords.y * PI,
+            )
             * Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0))
-            * Mat4::from_rotation_y(planetoid_transform.rotation - PI * 0.5);
+            * Mat4::from_rotation_y(-planetoid_transform.rotation);
 
         *transform = Transform::from_matrix(matrix);
     }

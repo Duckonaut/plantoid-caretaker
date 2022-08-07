@@ -104,9 +104,7 @@ fn creature_movement(
 ) {
     if let Some(target) = target.target {
         for mut transform in query.iter_mut() {
-            let delta = target - transform.sphere_coords;
-
-            transform.sphere_coords += delta * time.delta_seconds() * 0.1;
+            transform.sphere_coords = target;
         }
     }
 }

@@ -39,7 +39,7 @@ pub(crate) struct Sun;
 #[derive(Component)]
 pub(crate) struct Sky;
 
-pub(crate) struct PlanetoidRotation(Quat);
+pub(crate) struct PlanetoidRotation(pub(crate) Quat);
 
 fn planetoid_rotation(time: Res<Time>, mut rotation: ResMut<PlanetoidRotation>) {
     *rotation = PlanetoidRotation(
